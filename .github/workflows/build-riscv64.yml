@@ -12,7 +12,7 @@ on:
 
 jobs:
   build:
-    runs-on: [self-hosted, linux, riscv64]
+    runs-on: ubuntu-24.04-riscv
     timeout-minutes: 120
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
@@ -23,15 +23,18 @@ jobs:
           ref: ${{ inputs.release_tag || github.ref }}
           fetch-depth: 0
 
-      - name: Set up Python
-        run: |
-          python3 -m venv /tmp/build-venv
-          . /tmp/build-venv/bin/activate
-          pip install --upgrade pip maturin
+      # Build on the RISE ubuntu-24.04-riscv runner with uv, matching the
+      # working httptools build. The self-hosted F3 board caused weekly
+      # runner-contention failures, and its bare python3 is absent on RISE
+      # runners - uv provisions a managed riscv64 Python instead.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
 
       - name: Build wheel
         run: |
+          uv venv --python 3.12 /tmp/build-venv
           . /tmp/build-venv/bin/activate
+          uv pip install --upgrade maturin
           maturin build --release --out /tmp/wheels/ --manifest-path bindings/python/Cargo.toml
 
       - name: Verify platform tag
@@ -59,7 +62,7 @@ jobs:
 
   release:
     needs: build
-    runs-on: [self-hosted, linux, riscv64]
+    runs-on: ubuntu-latest
     if: success()
     env:
       GH_REPO: ${{ github.repository }}
@@ -104,10 +107,9 @@ jobs:
           # Create new release
           gh release create "$TAG" \
             --title "$TITLE" \
-            --notes "Prebuilt riscv64 wheel for $(uname -m) Linux.
+            --notes "Prebuilt riscv64 wheel for Linux.
 
-          Built on: BananaPi F3 (SpacemiT K1, rv64imafdcv)
-          Python: $(python3 --version 2>&1)
+          Built on: RISE riscv64 runner (ubuntu-24.04-riscv)
           Wheel: ${{ steps.wheel_info.outputs.whl_name }}
 
           Install:
